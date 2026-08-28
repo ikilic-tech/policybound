@@ -22,10 +22,11 @@ What you expected to happen.
 
 ## Actual Behavior
 
-What actually happened.
+What actually happened. Include error messages or tracebacks if applicable.
 
 ## Environment
 
 - Python version:
 - PolicyBound version:
 - OS:
+- Installation method (pip, source):

@@ -34,11 +34,19 @@ ruff check src/ tests/
 mypy src/
 ```
 
+### All Checks
+
+Run all three before submitting:
+
+```bash
+pytest && ruff check src/ tests/ && mypy src/
+```
+
 ## Submitting Changes
 
 1. Create a feature branch from `main`
 2. Write tests for your changes
-3. Ensure all tests pass and linting is clean
+3. Ensure all tests pass, linting is clean, and type checking passes
 4. Submit a pull request with a clear description of the change
 
 ## Reporting Issues
@@ -49,12 +57,17 @@ Use [GitHub Issues](https://github.com/ikilic-tech/policybound/issues) to report
 - Expected vs. actual behavior
 - Python version and OS
 
+## Security Issues
+
+**Do not open a public issue for security vulnerabilities.** See [SECURITY.md](SECURITY.md) for responsible disclosure instructions.
+
 ## Code Style
 
 - Follow existing code conventions
-- Use type hints
+- Use type hints for all public APIs
 - Keep functions focused and small
 - Write docstrings for public APIs
+- Target Python 3.10+ syntax
 
 ## License
 

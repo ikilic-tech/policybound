@@ -1,5 +1,9 @@
 # PolicyBound
 
+[![CI](https://github.com/ikilic-tech/policybound/actions/workflows/ci.yml/badge.svg)](https://github.com/ikilic-tech/policybound/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 **Add governance to your AI agent in minutes.**
 
 PolicyBound is lightweight governance middleware for AI agents. It lets developers add policy enforcement, decision auditing, and verifiable receipts to any AI agent without adopting a full governance platform.
@@ -14,7 +18,7 @@ AI agents are making consequential decisions — accessing databases, processing
 
 Existing governance platforms require significant infrastructure investment, vendor lock-in, or framework-specific integrations. Most teams need something simpler.
 
-## PolicyBound's Approach
+## Three Primitives
 
 PolicyBound focuses on three primitives:
 
@@ -269,7 +273,11 @@ In non-strict mode, governance infrastructure failures are logged but the policy
 ## Development
 
 ```bash
-# Install in development mode
+# Clone and install
+git clone https://github.com/ikilic-tech/policybound.git
+cd policybound
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 
 # Run tests

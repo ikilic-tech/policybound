@@ -21,6 +21,8 @@ keywords = [
     "compliance",
     "security",
     "middleware",
+    "cryptography",
+    "ed25519",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -62,6 +64,9 @@ Changelog = "https://github.com/ikilic-tech/policybound/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/policybound"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["*.key", "*.pem", "*.db", "*.sqlite", ".env", ".venv", ".coverage"]
 
 [tool.ruff]
 target-version = "py310"

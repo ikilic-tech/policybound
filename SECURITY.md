@@ -6,7 +6,23 @@ If you discover a security vulnerability in PolicyBound, please report it respon
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, please email security concerns to the project maintainers via the contact information in the repository.
+Instead, please use [GitHub's private vulnerability reporting](https://github.com/ikilic-tech/policybound/security/advisories/new) to submit your report. This ensures the vulnerability can be assessed and addressed before public disclosure.
+
+If private vulnerability reporting is unavailable, email the maintainer through the contact information on their [GitHub profile](https://github.com/ikilic-tech).
+
+### What to include
+
+- Description of the vulnerability
+- Steps to reproduce
+- Affected versions
+- Potential impact
+- Suggested fix (if any)
+
+### Response timeline
+
+- **Acknowledgment**: Within 48 hours
+- **Initial assessment**: Within 1 week
+- **Fix or mitigation**: Depends on severity
 
 ## Threat Model
 
@@ -23,6 +39,7 @@ PolicyBound's cryptographic design does **not** provide:
 - **Legal non-repudiation**: Depends on key management practices outside this library
 - **Key security**: A compromised private key allows forging valid signatures
 - **Completeness**: The system cannot prove all actions were recorded if the middleware is bypassed
+- **Trust anchoring**: Receipt verification with the embedded key proves integrity, not authenticity — use an explicit trusted public key for full authenticity verification
 
 ## Supported Versions
 
@@ -35,5 +52,7 @@ PolicyBound's cryptographic design does **not** provide:
 - Dependencies are kept minimal and pinned to minimum versions
 - Ed25519 signatures via the `cryptography` library (no custom crypto)
 - Canonical JSON serialization for deterministic hashing
+- Private keys written with restricted file permissions (0600)
+- Regex patterns validated and length-limited at policy load time
 - SQLite WAL mode for write durability
 - Fail-closed default behavior for governance failures

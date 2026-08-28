@@ -4,7 +4,23 @@ All notable changes to PolicyBound will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- ReDoS vulnerability: regex patterns are now pre-compiled and length-limited at policy load time
+- Private key file permissions set to 0600 (owner-only) instead of default umask
+- `verify_chain()` now supports optional Ed25519 signature verification alongside hash chain checks
+- `canonical_json()` rejects NaN/Infinity values (`allow_nan=False`)
+
+### Added
+
+- Sensitive data redaction via `redact_keys` parameter on `PolicyGate`
+- Public key parameter on `audit --verify-chain` CLI command for signature verification
+
 ## [0.1.0] - 2026-08-28
+
+Initial release (alpha).
 
 ### Added
 
