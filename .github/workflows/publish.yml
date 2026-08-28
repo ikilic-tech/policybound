@@ -1,0 +1,95 @@
+name: Publish to PyPI
+
+on:
+  release:
+    types: [published]
+
+# Least-privilege: no permissions by default; each job declares its own.
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build
+
+      - name: Verify version matches tag
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG_VERSION=$(python -c "
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          echo "Git tag version: $TAG"
+          echo "Package version: $PKG_VERSION"
+          if [ "$TAG" != "$PKG_VERSION" ]; then
+            echo "::error::Version mismatch: tag=$TAG, package=$PKG_VERSION"
+            exit 1
+          fi
+
+      - name: Build distributions
+        run: python -m build
+
+      - name: Validate artifacts
+        run: |
+          echo "=== Wheel contents ==="
+          unzip -l dist/*.whl
+
+          echo ""
+          echo "=== Checking py.typed marker ==="
+          unzip -l dist/*.whl | grep -q "py.typed" || { echo "::error::py.typed missing from wheel"; exit 1; }
+
+          echo ""
+          echo "=== Checking for excluded files ==="
+          unzip -l dist/*.whl | grep -qi "\.claude" && { echo "::error::.claude found in wheel"; exit 1; } || true
+          unzip -l dist/*.whl | grep -qi "\.env" && { echo "::error::.env found in wheel"; exit 1; } || true
+          unzip -l dist/*.whl | grep -qi "\.pem" && { echo "::error::.pem found in wheel"; exit 1; } || true
+          unzip -l dist/*.whl | grep -qi "\.key" && { echo "::error::.key found in wheel"; exit 1; } || true
+
+          echo ""
+          echo "=== sdist contents ==="
+          tar tzf dist/*.tar.gz
+          tar tzf dist/*.tar.gz | grep -qi "\.claude" && { echo "::error::.claude found in sdist"; exit 1; } || true
+
+          echo ""
+          echo "=== Metadata version ==="
+          unzip -p dist/*.whl "*/METADATA" | head -3
+
+          echo ""
+          echo "All artifact checks passed."
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/policybound
+    permissions:
+      id-token: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
