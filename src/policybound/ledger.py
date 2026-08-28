@@ -21,6 +21,7 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol
@@ -62,7 +63,7 @@ class SQLiteBackend:
 
     def __init__(self, path: str | Path = "policybound.db") -> None:
         self._path = str(path)
-        self._conn = sqlite3.connect(self._path)
+        self._conn = sqlite3.connect(self._path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._create_table()
@@ -172,7 +173,7 @@ class SQLiteBackend:
         params.append(limit)
 
         rows = self._conn.execute(
-            f"SELECT record_json FROM decisions {where} ORDER BY sequence ASC LIMIT ?",
+            f"SELECT record_json FROM decisions {where} ORDER BY sequence ASC LIMIT ?",  # nosec: B608
             params,
         ).fetchall()
         return [json.loads(row["record_json"]) for row in rows]
@@ -215,46 +216,54 @@ class DecisionLedger:
         self._private_key = private_key
         self._public_key = private_key.public_key()
         self._backend: LedgerBackend = backend or SQLiteBackend(db_path)
+        self._lock = threading.Lock()
 
     def record(self, decision: Decision) -> DecisionRecord:
         """Record a decision in the ledger.
 
         Creates a hash-chained, signed record and appends it to the
         ledger. Returns the DecisionRecord for receipt generation.
+
+        Thread-safe: a lock serializes the read-hash, read-sequence,
+        compute, and append steps to prevent race conditions under
+        concurrent access.
         """
-        previous_hash = self._backend.get_last_hash()
-        sequence = self._backend.get_last_sequence() + 1
+        with self._lock:
+            previous_hash = self._backend.get_last_hash()
+            sequence = self._backend.get_last_sequence() + 1
 
-        # Create the signable content
-        decision_dict = decision.to_dict()
-        signable = {
-            "decision": decision_dict,
-            "previous_hash": previous_hash,
-            "sequence": sequence,
-        }
-        canonical = canonical_json(signable)
-        record_hash = compute_hash(canonical)
+            # Create the signable content
+            decision_dict = decision.to_dict()
+            signable = {
+                "decision": decision_dict,
+                "previous_hash": previous_hash,
+                "sequence": sequence,
+            }
+            canonical = canonical_json(signable)
+            record_hash = compute_hash(canonical)
 
-        # Sign the hash
-        signature_bytes = sign(self._private_key, canonical)
-        signature_b64 = base64.b64encode(signature_bytes).decode("ascii")
+            # Sign the hash
+            signature_bytes = sign(self._private_key, canonical)
+            signature_b64 = base64.b64encode(signature_bytes).decode("ascii")
 
-        record = DecisionRecord(
-            decision=decision,
-            record_hash=record_hash,
-            previous_hash=previous_hash,
-            signature=signature_b64,
-            sequence=sequence,
-        )
+            record = DecisionRecord(
+                decision=decision,
+                record_hash=record_hash,
+                previous_hash=previous_hash,
+                signature=signature_b64,
+                sequence=sequence,
+            )
 
-        # Persist
-        record_dict = record.to_dict()
-        try:
-            self._backend.append(record_dict)
-        except Exception as e:
-            raise LedgerError(f"Failed to persist decision record: {e}") from e
+            # Persist
+            record_dict = record.to_dict()
+            try:
+                self._backend.append(record_dict)
+            except Exception as e:
+                raise LedgerError(
+                    f"Failed to persist decision record: {e}"
+                ) from e
 
-        return record
+            return record
 
     def verify_chain(
         self, public_key: Ed25519PublicKey | None = None

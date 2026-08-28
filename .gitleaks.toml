@@ -1,0 +1,13 @@
+# Gitleaks configuration — false positive allowlist
+# https://github.com/gitleaks/gitleaks#configuration
+
+[allowlist]
+  description = "PolicyBound false positives"
+
+  # Ed25519PrivateKey is a type name from the cryptography library,
+  # not a secret. It appears in type annotations throughout the codebase.
+  regexTarget = "match"
+  regexes = [
+    '''Ed25519PrivateKey''',
+    '''Ed25519PublicKey''',
+  ]
