@@ -63,6 +63,8 @@ class PolicyGate:
             decision result.
     """
 
+    REDACTED_VALUE = "**REDACTED**"
+
     def __init__(
         self,
         policy_engine: PolicyEngine,
@@ -72,6 +74,7 @@ class PolicyGate:
         db_path: str | Path = "policybound.db",
         strict: bool = True,
         emit_receipts: bool = True,
+        redact_keys: set[str] | None = None,
     ) -> None:
         # Generate keys if not provided
         if private_key is None:
@@ -87,6 +90,7 @@ class PolicyGate:
         )
         self._strict = strict
         self._emit_receipts = emit_receipts
+        self._redact_keys: set[str] = redact_keys or set()
 
     @classmethod
     def from_file(
@@ -96,6 +100,7 @@ class PolicyGate:
         key_path: str | Path | None = None,
         strict: bool = True,
         emit_receipts: bool = True,
+        redact_keys: set[str] | None = None,
     ) -> PolicyGate:
         """Create a PolicyGate from a YAML policy file.
 
@@ -124,6 +129,7 @@ class PolicyGate:
             db_path=db_path,
             strict=strict,
             emit_receipts=emit_receipts,
+            redact_keys=redact_keys,
         )
 
     def check(
@@ -175,6 +181,10 @@ class PolicyGate:
             else:
                 raise
 
+        # Redact sensitive fields before recording
+        if self._redact_keys:
+            decision = self._redact_decision(decision)
+
         # Record in ledger
         record: DecisionRecord | None = None
         try:
@@ -200,6 +210,32 @@ class PolicyGate:
             decision=decision,
             record=record,
             receipt=receipt,
+        )
+
+    def _redact_decision(self, decision: Decision) -> Decision:
+        """Create a copy of the decision with sensitive fields redacted."""
+        redacted_args = {
+            k: self.REDACTED_VALUE if k in self._redact_keys else v
+            for k, v in decision.request.arguments.items()
+        }
+        redacted_ctx = {
+            k: self.REDACTED_VALUE if k in self._redact_keys else v
+            for k, v in decision.request.context.items()
+        }
+        redacted_request = ActionRequest(
+            agent=decision.request.agent,
+            tool=decision.request.tool,
+            arguments=redacted_args,
+            context=redacted_ctx,
+            request_id=decision.request.request_id,
+        )
+        return Decision(
+            request=redacted_request,
+            verdict=decision.verdict,
+            rule_name=decision.rule_name,
+            reason=decision.reason,
+            policy_name=decision.policy_name,
+            policy_version=decision.policy_version,
         )
 
     def check_or_raise(
@@ -246,8 +282,8 @@ class PolicyGate:
         return self._policy_engine.version
 
     def verify_ledger(self) -> bool:
-        """Verify the integrity of the decision ledger's hash chain."""
-        return self._ledger.verify_chain()
+        """Verify the integrity of the decision ledger's hash chain and signatures."""
+        return self._ledger.verify_chain(public_key=self._public_key)
 
 
 class GateResult:

@@ -110,9 +110,9 @@ def canonical_json(data: dict[str, Any]) -> bytes:
     deterministic serialization. This is a simplified form of
     RFC 8785 (JSON Canonicalization Scheme).
     """
-    return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(
-        "utf-8"
-    )
+    return json.dumps(
+        data, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False
+    ).encode("utf-8")
 
 
 def compute_hash(data: bytes) -> str:

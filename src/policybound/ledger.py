@@ -28,9 +28,11 @@ from typing import Any, Protocol
 from policybound.crypto import (
     GENESIS_HASH,
     Ed25519PrivateKey,
+    Ed25519PublicKey,
     canonical_json,
     compute_hash,
     sign,
+    verify,
 )
 from policybound.errors import LedgerError, LedgerTamperError
 from policybound.types import Decision, DecisionRecord
@@ -211,6 +213,7 @@ class DecisionLedger:
         db_path: str | Path = "policybound.db",
     ) -> None:
         self._private_key = private_key
+        self._public_key = private_key.public_key()
         self._backend: LedgerBackend = backend or SQLiteBackend(db_path)
 
     def record(self, decision: Decision) -> DecisionRecord:
@@ -253,12 +256,24 @@ class DecisionLedger:
 
         return record
 
-    def verify_chain(self) -> bool:
-        """Verify the integrity of the entire hash chain.
+    def verify_chain(
+        self, public_key: Ed25519PublicKey | None = None
+    ) -> bool:
+        """Verify the integrity of the entire hash chain and optionally signatures.
+
+        Always checks:
+        1. Hash chain linkage (previous_hash matches)
+        2. Content hash integrity (recomputed hash matches stored hash)
+
+        When a public_key is provided, also checks:
+        3. Signature validity (Ed25519 signature verifies against content)
+
+        Args:
+            public_key: Public key to verify signatures against. If None,
+                only hash chain integrity is verified (no signature check).
 
         Returns True if the chain is intact. Raises LedgerTamperError
-        if tampering is detected, with details about which record was
-        modified.
+        if tampering is detected.
         """
         records = self._backend.get_all()
         expected_previous = GENESIS_HASH
@@ -287,6 +302,23 @@ class DecisionLedger:
                     f"stored {record_dict['record_hash']}, "
                     f"recomputed {recomputed}"
                 )
+
+            # Verify signature when public key is available
+            if public_key is not None:
+                signature_b64 = record_dict.get("signature", "")
+                try:
+                    signature_bytes = base64.b64decode(signature_b64)
+                except Exception:
+                    raise LedgerTamperError(
+                        f"Invalid signature encoding at sequence "
+                        f"{record_dict['sequence']}"
+                    ) from None
+
+                if not verify(public_key, signature_bytes, canonical):
+                    raise LedgerTamperError(
+                        f"Signature verification failed at sequence "
+                        f"{record_dict['sequence']}"
+                    )
 
             expected_previous = record_dict["record_hash"]
 

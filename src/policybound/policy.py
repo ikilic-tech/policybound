@@ -74,6 +74,9 @@ class YAMLPolicyEngine:
     the verdict. If no rule matches, the default verdict applies.
     """
 
+    # Maximum length for regex patterns to limit complexity
+    MAX_PATTERN_LENGTH = 1000
+
     def __init__(self, policy_data: dict[str, Any]) -> None:
         self._validate(policy_data)
         policy_meta = policy_data["policy"]
@@ -81,6 +84,8 @@ class YAMLPolicyEngine:
         self._version: str = str(policy_meta["version"])
         self._default: str = str(policy_meta.get("default", "deny"))
         self._rules: list[dict[str, Any]] = policy_data.get("rules", [])
+        self._compiled_patterns: dict[str, re.Pattern[str]] = {}
+        self._compile_patterns()
 
     @classmethod
     def from_file(cls, path: str | Path) -> YAMLPolicyEngine:
@@ -112,6 +117,36 @@ class YAMLPolicyEngine:
     def name(self) -> str:
         return self._name
 
+    def _compile_patterns(self) -> None:
+        """Pre-compile and validate all regex patterns at load time.
+
+        This catches invalid or excessively long patterns early,
+        before any evaluation occurs.
+        """
+        for i, rule in enumerate(self._rules):
+            conditions = rule.get("when", {})
+            if not isinstance(conditions, dict):
+                continue
+            for key, expected in conditions.items():
+                if isinstance(expected, dict) and "pattern" in expected:
+                    pattern_str = str(expected["pattern"])
+                    cache_key = f"{i}:{key}"
+                    if len(pattern_str) > self.MAX_PATTERN_LENGTH:
+                        raise InvalidPolicyError(
+                            f"Rule '{rule.get('name', i)}': pattern exceeds "
+                            f"maximum length of {self.MAX_PATTERN_LENGTH} "
+                            f"characters"
+                        )
+                    try:
+                        self._compiled_patterns[cache_key] = re.compile(
+                            pattern_str
+                        )
+                    except re.error as e:
+                        raise InvalidPolicyError(
+                            f"Rule '{rule.get('name', i)}': invalid regex "
+                            f"pattern '{pattern_str}': {e}"
+                        ) from e
+
     @property
     def version(self) -> str:
         return self._version
@@ -123,8 +158,8 @@ class YAMLPolicyEngine:
         or the default verdict if no rule matches.
         """
         try:
-            for rule in self._rules:
-                if self._matches(rule, request):
+            for rule_idx, rule in enumerate(self._rules):
+                if self._matches(rule, request, rule_idx):
                     verdict = self._parse_verdict(rule["action"])
                     return Decision(
                         request=request,
@@ -152,7 +187,9 @@ class YAMLPolicyEngine:
                 f"Policy evaluation failed: {e}"
             ) from e
 
-    def _matches(self, rule: dict[str, Any], request: ActionRequest) -> bool:
+    def _matches(
+        self, rule: dict[str, Any], request: ActionRequest, rule_idx: int
+    ) -> bool:
         """Check whether a rule's conditions match the request."""
         conditions = rule.get("when", {})
         if not conditions:
@@ -160,7 +197,7 @@ class YAMLPolicyEngine:
 
         for key, expected in conditions.items():
             actual = self._resolve_value(key, request)
-            if not self._check_condition(actual, expected):
+            if not self._check_condition(actual, expected, rule_idx, key):
                 return False
         return True
 
@@ -177,18 +214,29 @@ class YAMLPolicyEngine:
             return request.context[key]
         return None
 
-    def _check_condition(self, actual: Any, expected: Any) -> bool:
+    def _check_condition(
+        self, actual: Any, expected: Any, rule_idx: int, key: str
+    ) -> bool:
         """Check whether an actual value satisfies the expected condition."""
         if isinstance(expected, dict):
-            return self._check_operator_condition(actual, expected)
+            return self._check_operator_condition(
+                actual, expected, rule_idx, key
+            )
 
         if isinstance(expected, str) and "*" in expected:
+            # Wildcard patterns use re.escape so they are safe from ReDoS
             pattern = re.escape(expected).replace(r"\*", ".*")
             return bool(re.fullmatch(pattern, str(actual))) if actual is not None else False
 
         return bool(actual == expected)
 
-    def _check_operator_condition(self, actual: Any, operators: dict[str, Any]) -> bool:
+    def _check_operator_condition(
+        self,
+        actual: Any,
+        operators: dict[str, Any],
+        rule_idx: int,
+        key: str,
+    ) -> bool:
         """Check operator-based conditions (gt, lt, gte, lte, in, not_in, pattern)."""
         for op, value in operators.items():
             if op == "gt":
@@ -224,7 +272,13 @@ class YAMLPolicyEngine:
             elif op == "pattern":
                 if actual is None:
                     return False
-                if not re.fullmatch(str(value), str(actual)):
+                cache_key = f"{rule_idx}:{key}"
+                compiled = self._compiled_patterns.get(cache_key)
+                if compiled is None:
+                    raise PolicyEvaluationError(
+                        f"Pattern not pre-compiled for {key}"
+                    )
+                if not compiled.fullmatch(str(actual)):
                     return False
             else:
                 raise PolicyEvaluationError(f"Unknown operator: {op}")

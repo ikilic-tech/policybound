@@ -12,6 +12,7 @@ Commands:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -100,7 +101,12 @@ rules:
     # Generate keypair
     key_dir_path.mkdir(parents=True, exist_ok=True)
     private_key, public_key = generate_keypair()
-    private_key_path.write_bytes(serialize_private_key(private_key))
+    # Write private key with restricted permissions (owner-only read/write)
+    fd = os.open(str(private_key_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, serialize_private_key(private_key))
+    finally:
+        os.close(fd)
     public_key_path.write_bytes(serialize_public_key(public_key))
 
     click.echo(f"Created signing key: {private_key_path}")
@@ -246,6 +252,12 @@ def verify(receipt_path: str, public_key: str | None, json_output: bool) -> None
 )
 @click.option("--limit", "-n", default=20, show_default=True, help="Maximum records to show.")
 @click.option("--verify-chain", is_flag=True, help="Verify the hash chain integrity.")
+@click.option(
+    "--public-key",
+    "-k",
+    default=None,
+    help="Public key file for signature verification (used with --verify-chain).",
+)
 @click.option("--json-output", "-j", is_flag=True, help="Output as JSON.")
 def audit(
     db: str,
@@ -254,10 +266,11 @@ def audit(
     verdict: str | None,
     limit: int,
     verify_chain: bool,
+    public_key: str | None,
     json_output: bool,
 ) -> None:
     """Query and inspect the decision ledger."""
-    from policybound.crypto import generate_keypair
+    from policybound.crypto import generate_keypair, load_public_key
     from policybound.ledger import DecisionLedger
 
     # We need a key to create a ledger instance, but for audit we only read
@@ -265,9 +278,15 @@ def audit(
     ledger = DecisionLedger(private_key=private_key, db_path=db)
 
     if verify_chain:
+        pub_key = None
+        if public_key:
+            pub_key = load_public_key(Path(public_key).read_bytes())
         try:
-            ledger.verify_chain()
-            click.echo(click.style("  Chain integrity: VALID", fg="green", bold=True))
+            ledger.verify_chain(public_key=pub_key)
+            msg = "Chain integrity: VALID"
+            if pub_key:
+                msg = "Chain integrity + signatures: VALID"
+            click.echo(click.style(f"  {msg}", fg="green", bold=True))
             click.echo(f"  Records: {ledger.count()}")
         except Exception as e:
             click.echo(click.style("  Chain integrity: TAMPERED", fg="red", bold=True))
