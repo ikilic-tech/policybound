@@ -186,7 +186,7 @@ class YAMLPolicyEngine:
             pattern = re.escape(expected).replace(r"\*", ".*")
             return bool(re.fullmatch(pattern, str(actual))) if actual is not None else False
 
-        return actual == expected
+        return bool(actual == expected)
 
     def _check_operator_condition(self, actual: Any, operators: dict[str, Any]) -> bool:
         """Check operator-based conditions (gt, lt, gte, lte, in, not_in, pattern)."""

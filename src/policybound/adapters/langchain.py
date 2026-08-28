@@ -27,7 +27,7 @@ from typing import Any
 from uuid import UUID
 
 try:
-    from langchain_core.callbacks import BaseCallbackHandler
+    from langchain_core.callbacks import BaseCallbackHandler  # type: ignore[import-not-found]
 except ImportError:
     raise ImportError(
         "LangChain integration requires the langchain extra. "
@@ -37,7 +37,7 @@ except ImportError:
 from policybound.gate import GateResult, PolicyGate
 
 
-class PolicyBoundCallbackHandler(BaseCallbackHandler):
+class PolicyBoundCallbackHandler(BaseCallbackHandler):  # type: ignore[misc]
     """LangChain callback handler that enforces PolicyBound governance.
 
     Intercepts tool calls and evaluates them against the policy.

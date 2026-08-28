@@ -67,7 +67,8 @@ def load_receipt(path: str | Path) -> dict[str, Any]:
     if not path.exists():
         raise VerificationError(f"Receipt file not found: {path}")
     with open(path) as f:
-        return json.load(f)
+        result: dict[str, Any] = json.load(f)
+        return result
 
 
 def verify_receipt(
