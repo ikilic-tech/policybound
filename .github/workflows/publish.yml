@@ -3,6 +3,12 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to publish (e.g. v0.1.0)"
+        required: true
+        type: string
 
 # Least-privilege: no permissions by default; each job declares its own.
 permissions: {}
@@ -13,7 +19,18 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ steps.tag.outputs.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
@@ -25,7 +42,8 @@ jobs:
 
       - name: Verify version matches tag
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${{ steps.tag.outputs.ref }}"
+          TAG="${TAG#v}"
           PKG_VERSION=$(python -c "
           import tomllib
           with open('pyproject.toml', 'rb') as f:
