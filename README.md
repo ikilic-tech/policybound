@@ -1,56 +1,52 @@
 # PolicyBound
 
 [![CI](https://github.com/ikilic-tech/policybound/actions/workflows/ci.yml/badge.svg)](https://github.com/ikilic-tech/policybound/actions/workflows/ci.yml)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![CodeQL](https://github.com/ikilic-tech/policybound/actions/workflows/codeql.yml/badge.svg)](https://github.com/ikilic-tech/policybound/actions/workflows/codeql.yml)
+[![PyPI](https://img.shields.io/pypi/v/policybound)](https://pypi.org/project/policybound/)
+[![Python 3.10+](https://img.shields.io/pypi/pyversions/policybound)](https://pypi.org/project/policybound/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**Add governance to your AI agent in minutes.**
-
-PolicyBound is lightweight governance middleware for AI agents. It lets developers add policy enforcement, decision auditing, and verifiable receipts to any AI agent without adopting a full governance platform.
-
-Every agent action is evaluated against a declarative YAML policy, recorded in a tamper-evident ledger, and wrapped in an independently verifiable receipt.
-
-## The Problem
-
-AI agents are making consequential decisions — accessing databases, processing payments, modifying customer records. Organizations need to answer:
-
-> *What did the agent do? Was it authorized? Can we prove it?*
-
-Existing governance platforms require significant infrastructure investment, vendor lock-in, or framework-specific integrations. Most teams need something simpler.
-
-## Three Primitives
-
-PolicyBound focuses on three primitives:
-
-1. **Policy Gate** — Evaluate every agent action against declarative rules before execution
-2. **Decision Ledger** — Record every decision in a tamper-evident, hash-chained audit log
-3. **Verifiable Receipts** — Generate portable, cryptographically signed proof of each decision
+PolicyBound is an open-source policy enforcement and auditing layer for AI agents. It evaluates every agent action against declarative YAML rules, records each decision in a tamper-evident ledger, and generates cryptographically signed receipts that can be verified independently.
 
 ```
-Agent
-  |
-  v
-PolicyGate -----> Policy (YAML rules)
-  |
-  v
-Decision -------> DecisionRecord (signed, hash-chained)
-  |
-  v
-Receipt --------> Independently verifiable proof
-  |
-  v
-Tool execution (or denial)
-```
-
-## Quick Start
-
-### Install
-
-```bash
 pip install policybound
 ```
 
-### Define a Policy
+---
+
+## Why PolicyBound?
+
+AI agents are making consequential decisions — accessing databases, processing payments, modifying records. As agents gain autonomy, organizations need answers to basic governance questions:
+
+> *What did the agent do? Was it authorized? Can we prove it?*
+
+PolicyBound provides three primitives that answer these questions without requiring a full governance platform or vendor lock-in:
+
+1. **Policy Gate** — Evaluate every agent action against declarative rules before execution
+2. **Decision Ledger** — Record every decision in a hash-chained, signed audit log
+3. **Verifiable Receipts** — Generate portable, cryptographically signed proof of each decision
+
+## Architecture
+
+```mermaid
+graph TD
+    A[Agent] --> B[PolicyGate]
+    B --> C[YAMLPolicyEngine]
+    C --> D{Decision}
+    D -->|allow| E[Tool Execution]
+    D -->|deny| F[Action Blocked]
+    D -->|escalate| G[Human Review]
+    B --> H[DecisionLedger]
+    H --> I["Hash-chained + Ed25519 signed"]
+    B --> J[Receipt]
+    J --> K[Independent Verification]
+```
+
+Every call to `PolicyGate.check()` evaluates the action against the policy, records the decision in the ledger, and returns a signed receipt — in a single method call.
+
+## Quick Start
+
+### 1. Define a Policy
 
 Create `policybound.yaml`:
 
@@ -85,7 +81,7 @@ rules:
       tool: crm.update
 ```
 
-### Use in Code
+### 2. Enforce the Policy
 
 ```python
 from policybound import PolicyGate
@@ -106,11 +102,18 @@ else:
     log_denial(result)
 ```
 
-### Verify a Receipt
+### 3. Verify a Receipt
+
+Every decision produces a receipt that can be saved, transferred, and verified independently:
 
 ```python
 from policybound import verify_receipt, load_receipt
+from policybound.receipt import save_receipt
 
+# Save the receipt from a gate result
+save_receipt(result.receipt, "receipt.json")
+
+# Later, verify it independently
 receipt = load_receipt("receipt.json")
 verification = verify_receipt(receipt)
 
@@ -121,68 +124,60 @@ else:
     print(f"Verification failed: {verification.error}")
 ```
 
-## Decision Record
-
-Every governance decision produces a first-class `Decision` object:
-
-```json
-{
-  "decision_id": "a1b2c3...",
-  "request": {
-    "agent": "sales-agent",
-    "tool": "crm.update",
-    "arguments": {"customer_id": "123"},
-    "request_id": "d4e5f6...",
-    "timestamp": "2026-01-15T10:30:00+00:00"
-  },
-  "verdict": "allow",
-  "rule_name": "allow-crm-update",
-  "reason": "Matched rule: allow-crm-update",
-  "policy_name": "production-agent",
-  "policy_version": "1"
-}
-```
-
-Each record is hash-chained to the previous record and cryptographically signed with Ed25519.
-
 ## CLI
 
 PolicyBound includes a CLI for policy management and auditing:
 
 ```bash
-# Initialize a new project with policy and signing keys
+# Initialize a new project with policy template and Ed25519 signing keys
 policybound init
 
 # Check an action against a policy
 policybound check -p policybound.yaml -a my-agent -t crm.read
 
-# Verify a receipt
+# Verify a decision receipt
 policybound verify receipt.json
 
 # Inspect the decision ledger
 policybound audit --verify-chain
 
-# Export ledger records
+# Export ledger records to JSON
 policybound export -o decisions.json
 ```
 
 ## Policy Language
 
-Rules are evaluated in order. The first matching rule wins. Supported conditions:
+Rules are evaluated in order — the first matching rule wins. If no rule matches, the `default` action applies.
 
 | Condition | Example | Description |
 |-----------|---------|-------------|
 | Exact match | `tool: crm.read` | Exact string equality |
-| Wildcard | `tool: crm.*` | Glob-style pattern |
+| Wildcard | `tool: crm.*` | Glob-style pattern matching |
 | `gt`, `lt`, `gte`, `lte` | `amount: { gt: 1000 }` | Numeric comparison |
 | `in`, `not_in` | `env: { in: [dev, staging] }` | Set membership |
-| `pattern` | `tool: { pattern: 'crm\..*' }` | Regex match |
+| `pattern` | `tool: { pattern: 'crm\..*' }` | Regex match (pre-compiled, length-limited) |
 
-Values are resolved from: `tool`, `agent`, then `arguments`, then `context`.
+Condition values are resolved from `tool` and `agent` fields first, then from `arguments`, then from `context`.
+
+## Core Concepts
+
+| Concept | Description |
+|---------|-------------|
+| `ActionRequest` | What an agent wants to do (agent, tool, arguments, context) |
+| `Decision` | The governance verdict (allow, deny, escalate) with the matched rule |
+| `PolicyGate` | Main entry point — evaluates policy, records decision, generates receipt |
+| `YAMLPolicyEngine` | Evaluates actions against declarative YAML rules |
+| `DecisionLedger` | Append-only, hash-chained, Ed25519-signed audit log (SQLite backend) |
+| `GateResult` | Return value from `gate.check()` containing the decision, record, and receipt |
+| `VerificationResult` | Result of verifying a receipt — includes decision details on success |
+
+The `PolicyEngine` and `LedgerBackend` are both defined as protocols, allowing custom implementations.
 
 ## Framework Adapters
 
 ### Generic Python Wrapper
+
+Wrap any function with policy enforcement:
 
 ```python
 from policybound import PolicyGate
@@ -200,7 +195,7 @@ governed_send = GovernedTool(
     func=send_email,
 )
 
-# Raises PolicyDeniedError if policy denies the action
+# Raises PolicyDeniedError if the policy denies the action
 result, gate_result = governed_send(to="user@example.com", subject="Hello", body="...")
 ```
 
@@ -218,50 +213,66 @@ agent.invoke({"input": "..."}, config={"callbacks": [handler]})
 
 Requires: `pip install policybound[langchain]`
 
-## Security Model
+## Security
 
-### What the cryptographic guarantees provide
+### Cryptographic Guarantees
 
-- **Integrity**: Any modification to a decision record is detectable via SHA-256 content hashing
-- **Chain integrity**: Inserting, deleting, or reordering records is detectable via hash chaining
-- **Authenticity**: Ed25519 signatures prove a record was produced by the holder of the signing key
-- **Independent verification**: Receipts are self-contained and verifiable offline
+| Guarantee | Mechanism |
+|-----------|-----------|
+| **Integrity** | SHA-256 content hashing detects modification of decision records |
+| **Chain integrity** | Hash chaining detects insertion, deletion, or reordering of records |
+| **Authenticity** | Ed25519 signatures prove a record was produced by the signing key holder |
+| **Independent verification** | Receipts are self-contained and verifiable offline |
 
-### What the cryptographic guarantees do NOT provide
+### Explicit Non-Guarantees
 
-- **Correctness**: A signed record does not prove the recorded action was correct or appropriate
-- **Legal non-repudiation**: Depends on key management practices outside this library's scope
-- **Key security**: If the private signing key is compromised, an attacker can produce valid signatures
-- **Completeness**: The system cannot prove that ALL actions were recorded — if the middleware is bypassed, no record is created
+- A signed record does not prove the recorded action was correct or appropriate
+- Legal non-repudiation depends on key management practices outside this library
+- If the private signing key is compromised, an attacker can produce valid signatures
+- The system cannot prove that all actions were recorded if the middleware is bypassed
 
-### Compliance Evidence
+See [SECURITY.md](SECURITY.md) for the full threat model and vulnerability reporting process.
 
-PolicyBound generates evidence for governance and compliance workflows. It provides technical controls and audit trails. Legal and regulatory compliance (EU AI Act, GDPR, SOC 2, etc.) remains the responsibility of the organization using the software.
+### Failure Model
 
-## Failure Model
+PolicyBound defaults to **fail-closed** behavior (`strict=True`). Any governance infrastructure failure — policy evaluation error, ledger write failure, signing failure — results in the action being denied.
 
-PolicyBound defaults to **fail-closed** behavior. Distinct failure modes:
+### CI Security Tooling
 
-| Failure | Behavior (strict mode) |
-|---------|----------------------|
-| Policy denied | Action blocked, decision recorded |
-| Policy evaluation error | Action blocked (treated as deny) |
-| Invalid policy | Exception raised, no actions evaluated |
-| Ledger failure | Action blocked (governance trail incomplete) |
-| Signing failure | Action blocked (record cannot be authenticated) |
-| Verification failure | Receipt marked invalid with error details |
+- [CodeQL](https://github.com/ikilic-tech/policybound/actions/workflows/codeql.yml) — static analysis for security vulnerabilities
+- [Bandit](https://bandit.readthedocs.io/) — Python-specific security linter
+- [pip-audit](https://pypi.org/project/pip-audit/) — dependency vulnerability scanning
+- [Gitleaks](https://gitleaks.io/) — secret detection in source and history
+- [Dependabot](https://docs.github.com/en/code-security/dependabot) — automated dependency updates
+- Trusted Publishing via OIDC — no long-lived PyPI credentials
 
-In non-strict mode, governance infrastructure failures are logged but the policy decision is still returned.
+## Testing
 
-## Limitations
+```
+121 tests | 87% coverage | Python 3.10–3.13
+```
 
-- MVP uses SQLite for the decision ledger (not suitable for high-concurrency production without an external backend)
+The test suite includes unit tests for every module, integration tests for the full governance flow, and dedicated security tests covering concurrent ledger writes, cryptographic edge cases, receipt tampering detection, and YAML injection prevention.
+
+```bash
+pytest --cov=policybound --cov-report=term-missing
+ruff check src/ tests/
+mypy src/
+```
+
+## Project Status
+
+PolicyBound v0.1.0 is the first public release. It is an alpha-stage library intended for evaluation and feedback. The API may change in future versions.
+
+### Known Limitations
+
+- Decision ledger uses SQLite (single-process writes; not suited for high-concurrency without an external backend)
 - No built-in key rotation mechanism
-- No real-time policy updates (requires restart or re-initialization)
+- No real-time policy hot-reloading (requires re-initialization)
 - Receipt verification requires access to the public key
-- YAML policy engine covers common cases; complex logic may require a custom `PolicyEngine` implementation
+- The YAML policy engine covers common cases; complex logic may require a custom `PolicyEngine` implementation
 
-## Roadmap
+### Roadmap
 
 - PostgreSQL ledger backend
 - Policy hot-reloading
@@ -270,26 +281,16 @@ In non-strict mode, governance infrastructure failures are logged but the policy
 - OpenTelemetry export
 - Additional framework adapters
 
-## Development
+## Contributing
 
-```bash
-# Clone and install
-git clone https://github.com/ikilic-tech/policybound.git
-cd policybound
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding standards, and the pull request process.
 
-# Run tests
-pytest
-
-# Run linting
-ruff check src/ tests/
-
-# Run type checking
-mypy src/
-```
+For security vulnerabilities, see [SECURITY.md](SECURITY.md).
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](LICENSE).
+
+---
+
+[PyPI](https://pypi.org/project/policybound/) · [Changelog](CHANGELOG.md) · [Security Policy](SECURITY.md) · [Contributing](CONTRIBUTING.md)
